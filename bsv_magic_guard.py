@@ -2,9 +2,9 @@
 """
 bsv_magic_guard.py
 
-Monitors BOTH IPv4 and IPv6 TCP traffic on Bitcoin SV’s P2P port (8333),
+Monitors BOTH IPv4 and IPv6 TCP traffic on Bitcoin SV's P2P port (8333),
 and immediately drops any connection that:
-  1) Does NOT begin with the correct 4-byte “BSV magic” (E8 F3 E1 E3), OR
+  1) Does NOT begin with the correct 4-byte "BSV magic" (E8 F3 E1 E3), OR
   2) Does NOT contain exactly "/Bitcoin SV:1.1.0/" or "/Bitcoin SV:1.0.16/"
      within the first 64 bytes.
 
@@ -14,7 +14,6 @@ We whitelist one IPv4 (10.1.0.7) and one IPv6 (2600:1900:4000:ebb2:0:5::).
 
 import subprocess
 import threading
-import time
 import logging
 import sys
 
@@ -24,10 +23,10 @@ from scapy.all import sniff, IP, IPv6, TCP, Raw
 
 NETWORK_INTERFACE = "ens3"
 
-#: Watch only Bitcoin SV’s P2P port:
+#: Watch only Bitcoin SV's P2P port:
 CLIENT_PORT = 8333
 
-#: Known BSV “magic” (4 bytes)
+#: Known BSV "magic" (4 bytes)
 MAGIC_HEADERS = { b"\xE8\xF3\xE1\xE3" }
 
 #: Allowed version banners
@@ -40,8 +39,6 @@ ALLOWED_SUBVERS = {
 WHITELIST_V4 = "10.1.0.7"
 WHITELIST_V6 = "2600:1900:4000:ebb2:0:5::"
 
-#: Immediate block—no sliding window
-THRESHOLD = 1
 
 LOGFILE  = "/var/log/bsv_magic_guard.log"
 LOG_LEVEL = logging.INFO
@@ -54,7 +51,7 @@ BPF_FILTER = (
 
 # ────── GLOBAL STATE ─────────────────────────────────────────────────────────────
 
-#: Track already‐blocked addresses to avoid duplicate iptables calls
+#: Track already-blocked addresses to avoid duplicate iptables calls
 blocked = set()
 state_lock = threading.Lock()
 
@@ -145,10 +142,9 @@ def install_block(src_addr: str, dst_port: int, is_ipv6: bool):
 
 def packet_callback(pkt):
     """
-    Called for each sniffed packet (BPF ensures only v4‐TCP or v6‐TCP destined for port 8333).
-    We check whether it’s IPv4 or IPv6, extract src → dst_port, then test the magic + version.
+    Called for each sniffed packet (BPF ensures only v4-TCP or v6-TCP destined for port 8333).
+    We check whether it's IPv4 or IPv6, extract src → dst_port, then test the magic + version.
 
-    If invalid, immediately block (THRESHOLD == 1).
     """
     # ─── IPv4 path ─────────────────────────────────────────────────────────────────
     if pkt.haslayer(IP) and pkt.haslayer(TCP) and pkt.haslayer(Raw):
@@ -167,7 +163,7 @@ def packet_callback(pkt):
         payload = bytes(pkt[Raw].load)
         if is_invalid_payload(payload):
             snippet = payload[:32].decode("utf-8", "ignore").replace("\n", "\\n").replace("\r", "\\r")
-            logger.info(f"🔥 Invalid payload from {src}:{dport} (v4) → “{snippet}” ; auto‐blocking.")
+            logger.info(f"🔥 Invalid payload from {src}:{dport} (v4) \u2192 \"{snippet}\" ; auto-blocking.")
             install_block(src, dport, False)
 
         return
@@ -189,13 +185,13 @@ def packet_callback(pkt):
         payload = bytes(pkt[Raw].load)
         if is_invalid_payload(payload):
             snippet = payload[:32].decode("utf-8", "ignore").replace("\n", "\\n").replace("\r", "\\r")
-            logger.info(f"🔥 Invalid payload from {src6}:{dport} (v6) → “{snippet}” ; auto‐blocking.")
+            logger.info(f"🔥 Invalid payload from {src6}:{dport} (v6) \u2192 \"{snippet}\" ; auto-blocking.")
             install_block(src6, dport, True)
 
 def main():
     logger.info(
         f"Starting BSV Magic+Version Guard on {NETWORK_INTERFACE}, port={CLIENT_PORT}, "
-        f"v4-whitelist={WHITELIST_V4}, v6-whitelist={WHITELIST_V6}, THRESHOLD={THRESHOLD}"
+        f"v4-whitelist={WHITELIST_V4}, v6-whitelist={WHITELIST_V6}"
     )
 
     # Ensure SSH remains unblocked:

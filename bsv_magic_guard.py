@@ -41,7 +41,6 @@ ALLOWED_SUBVERS = {
 #  large enough to include the entire version message in the first packet.
 HEAD_CHECK_BYTES = 160
 
-
 #: How often to poll ``bsv-cli`` for peer and block info (in seconds)
 SYNC_CHECK_INTERVAL = 60
 

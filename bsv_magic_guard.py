@@ -6,7 +6,7 @@ Monitors BOTH IPv4 and IPv6 TCP traffic on Bitcoin SV's P2P port (8333),
 and immediately drops any connection that:
   1) Does NOT begin with the correct 4-byte "BSV magic" (E8 F3 E1 E3), OR
   2) Does NOT contain exactly "/Bitcoin SV:1.1.0/" or "/Bitcoin SV:1.0.16/"
-     within the first 64 bytes.
+     within the first 160 bytes (to catch the version banner in full).
 
 Any offending IP (v4 or v6) is instantly banished via iptables/ip6tables DROP.
 We whitelist one IPv4 (10.1.0.7) and one IPv6 (2600:1900:4000:ebb2:0:5::).
@@ -16,6 +16,9 @@ import subprocess
 import threading
 import logging
 import sys
+import json
+import time
+from typing import Tuple
 
 from scapy.all import sniff, IP, IPv6, TCP, Raw
 
@@ -34,6 +37,17 @@ ALLOWED_SUBVERS = {
     b"/Bitcoin SV:1.1.0/",
     b"/Bitcoin SV:1.0.16/",
 }
+
+#: Number of payload bytes to scan for the version banner. 160 bytes is
+#  large enough to include the entire version message in the first packet.
+HEAD_CHECK_BYTES = 160
+
+
+#: How often to poll ``bsv-cli`` for peer and block info (in seconds)
+SYNC_CHECK_INTERVAL = 60
+
+#: Optional datadir for bsv-cli. Leave empty string to omit.
+DATADIR = ""
 
 #: Whitelist IP v4/v6 (trusted peers)
 WHITELIST_V4 = "10.1.0.7"
@@ -78,8 +92,8 @@ def is_invalid_payload(payload: bytes) -> bool:
     Returns True if:
       - payload is < 4 bytes, OR
       - first 4 bytes are NOT one of our MAGIC_HEADERS, OR
-      - within the first 64 bytes, there is NO exact match for either
-        "/Bitcoin SV:1.1.0/" or "/Bitcoin SV:1.0.16/".
+      - within the first ``HEAD_CHECK_BYTES`` bytes, there is NO exact match for
+        either "/Bitcoin SV:1.1.0/" or "/Bitcoin SV:1.0.16/".
     """
     # 1) Must be at least 4 bytes
     if len(payload) < 4:
@@ -89,10 +103,10 @@ def is_invalid_payload(payload: bytes) -> bool:
     if payload[:4] not in MAGIC_HEADERS:
         return True
 
-    # 3) Within the first 64 bytes, must find an allowed version banner
-    head_64 = payload[:64]
+    # 3) Within the first HEAD_CHECK_BYTES, must find an allowed version banner
+    head = payload[:HEAD_CHECK_BYTES]
     for sv in ALLOWED_SUBVERS:
-        if sv in head_64:
+        if sv in head:
             return False
 
     # If none of the allowed banners are found, it's invalid
@@ -137,6 +151,60 @@ def install_block(src_addr: str, dst_port: int, is_ipv6: bool):
         logger.info(f"✅ Successfully blocked {src_addr} → {dst_port}")
     except subprocess.CalledProcessError as e:
         logger.error(f"❌ Failed to run {table_cmd} for {src_addr}:{dst_port}: {e}")
+
+
+def _parse_peer_ip(addr: str) -> Tuple[str, bool]:
+    """Return (ip, is_ipv6) parsed from getpeerinfo's addr field."""
+    if addr.startswith('['):
+        ip = addr[1:addr.index(']')]
+    else:
+        ip = addr.rsplit(':', 1)[0]
+    is_v6 = ':' in ip
+    return ip, is_v6
+
+
+def check_peer_sync():
+    """Poll ``bsv-cli`` and block peers that are behind the local node."""
+    base_cmd = ['bsv-cli']
+    if DATADIR:
+        base_cmd.extend(['-datadir', DATADIR])
+
+    peer_cmd = base_cmd + ['getpeerinfo']
+    height_cmd = base_cmd + ['getblockcount']
+
+    while True:
+        try:
+            local_height = int(subprocess.check_output(height_cmd, text=True).strip())
+        except Exception as e:
+            logger.error(f"Failed to get block height: {e}")
+            time.sleep(SYNC_CHECK_INTERVAL)
+            continue
+
+        try:
+            output = subprocess.check_output(peer_cmd, text=True)
+            peers = json.loads(output)
+        except Exception as e:
+            logger.error(f"Failed to run bsv-cli: {e}")
+            time.sleep(SYNC_CHECK_INTERVAL)
+            continue
+
+        for p in peers:
+            addr = p.get('addr')
+            if not addr:
+                continue
+            ip, is_v6 = _parse_peer_ip(addr)
+            if ip in (WHITELIST_V4, WHITELIST_V6):
+                continue
+
+            headers = p.get('synced_headers')
+            blocks = p.get('synced_blocks')
+            if (
+                headers is None or blocks is None or
+                headers < local_height or blocks < local_height
+            ):
+                install_block(ip, CLIENT_PORT, is_v6)
+
+        time.sleep(SYNC_CHECK_INTERVAL)
 
 # ────── PACKET HANDLER / SNIFF LOOP ────────────────────────────────────────────────
 
@@ -193,6 +261,10 @@ def main():
         f"Starting BSV Magic+Version Guard on {NETWORK_INTERFACE}, port={CLIENT_PORT}, "
         f"v4-whitelist={WHITELIST_V4}, v6-whitelist={WHITELIST_V6}"
     )
+
+    # Start background thread to enforce sync status
+    sync_thread = threading.Thread(target=check_peer_sync, daemon=True)
+    sync_thread.start()
 
     # Ensure SSH remains unblocked:
     # - sudo iptables  -I INPUT 1 -p tcp --dport 22 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT

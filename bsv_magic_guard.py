@@ -6,7 +6,7 @@ Monitors BOTH IPv4 and IPv6 TCP traffic on Bitcoin SV's P2P port (8333),
 and immediately drops any connection that:
   1) Does NOT begin with the correct 4-byte "BSV magic" (E8 F3 E1 E3), OR
   2) Does NOT contain exactly "/Bitcoin SV:1.1.0/" or "/Bitcoin SV:1.0.16/"
-     within the first 64 bytes.
+     within the first 160 bytes (to catch the version banner in full).
 
 Any offending IP (v4 or v6) is instantly banished via iptables/ip6tables DROP.
 We whitelist one IPv4 (10.1.0.7) and one IPv6 (2600:1900:4000:ebb2:0:5::).
@@ -34,6 +34,10 @@ ALLOWED_SUBVERS = {
     b"/Bitcoin SV:1.1.0/",
     b"/Bitcoin SV:1.0.16/",
 }
+
+#: Number of payload bytes to scan for the version banner. 160 bytes is
+#  large enough to include the entire version message in the first packet.
+HEAD_CHECK_BYTES = 160
 
 #: Whitelist IP v4/v6 (trusted peers)
 WHITELIST_V4 = "10.1.0.7"
@@ -78,8 +82,8 @@ def is_invalid_payload(payload: bytes) -> bool:
     Returns True if:
       - payload is < 4 bytes, OR
       - first 4 bytes are NOT one of our MAGIC_HEADERS, OR
-      - within the first 64 bytes, there is NO exact match for either
-        "/Bitcoin SV:1.1.0/" or "/Bitcoin SV:1.0.16/".
+      - within the first ``HEAD_CHECK_BYTES`` bytes, there is NO exact match for
+        either "/Bitcoin SV:1.1.0/" or "/Bitcoin SV:1.0.16/".
     """
     # 1) Must be at least 4 bytes
     if len(payload) < 4:
@@ -89,10 +93,10 @@ def is_invalid_payload(payload: bytes) -> bool:
     if payload[:4] not in MAGIC_HEADERS:
         return True
 
-    # 3) Within the first 64 bytes, must find an allowed version banner
-    head_64 = payload[:64]
+    # 3) Within the first HEAD_CHECK_BYTES, must find an allowed version banner
+    head = payload[:HEAD_CHECK_BYTES]
     for sv in ALLOWED_SUBVERS:
-        if sv in head_64:
+        if sv in head:
             return False
 
     # If none of the allowed banners are found, it's invalid

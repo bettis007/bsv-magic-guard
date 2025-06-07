@@ -28,7 +28,7 @@ Log messages are written to `/var/log/bsv_magic_guard.log` and to stdout. Ensure
 
 - Captures TCP packets destined for port 8333 on both IPv4 and IPv6.
 - Checks that the first four bytes match Bitcoin SV's magic header (`E8 F3 E1 E3`).
-- Searches the first 64 bytes of the payload for one of the allowed version banners (`/Bitcoin SV:1.1.0/` or `/Bitcoin SV:1.0.16/`).
+- Searches the first 160 bytes of the payload for one of the allowed version banners (`/Bitcoin SV:1.1.0/` or `/Bitcoin SV:1.0.16/`).
 - Any peer failing these checks is immediately blocked via `iptables` or `ip6tables`.
 
 ## Disclaimer

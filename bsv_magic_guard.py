@@ -18,6 +18,7 @@ import logging
 import sys
 import json
 import time
+
 from typing import Tuple
 
 from scapy.all import sniff, IP, IPv6, TCP, Raw
@@ -41,7 +42,6 @@ ALLOWED_SUBVERS = {
 #: Number of payload bytes to scan for the version banner. 160 bytes is
 #  large enough to include the entire version message in the first packet.
 HEAD_CHECK_BYTES = 160
-
 
 #: How often to poll ``bsv-cli`` for peer and block info (in seconds)
 SYNC_CHECK_INTERVAL = 60
@@ -152,8 +152,10 @@ def install_block(src_addr: str, dst_port: int, is_ipv6: bool):
     except subprocess.CalledProcessError as e:
         logger.error(f"❌ Failed to run {table_cmd} for {src_addr}:{dst_port}: {e}")
 
-
 def _parse_peer_ip(addr: str) -> Tuple[str, bool]:
+
+def _parse_peer_ip(addr: str) -> tuple[str, bool]:
+
     """Return (ip, is_ipv6) parsed from getpeerinfo's addr field."""
     if addr.startswith('['):
         ip = addr[1:addr.index(']')]

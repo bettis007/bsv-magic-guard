@@ -8,7 +8,7 @@ and immediately drops any connection that:
   1) Does NOT begin with the correct 4-byte "BSV magic" (E8 F3 E1 E3), OR
   2) Does NOT contain exactly "/Bitcoin SV:1.1.0/" or "/Bitcoin SV:1.0.16/"
      within the first 160 bytes (to catch the version banner in full).
-This guard also checks peer sync every minute and bans nodes lagging behind your local block height.
+
 
 Any offending IP (v4 or v6) is instantly banished via iptables/ip6tables DROP.
 We whitelist one IPv4 (10.1.0.7) and one IPv6 (2600:1900:4000:ebb2:0:5::).
@@ -20,6 +20,7 @@ import logging
 import sys
 import json
 import time
+
 from typing import Tuple
 
 from scapy.all import sniff, IP, IPv6, TCP, Raw
@@ -43,8 +44,6 @@ ALLOWED_SUBVERS = {
 #: Number of payload bytes to scan for the version banner. 160 bytes is
 #  large enough to include the entire version message in the first packet.
 HEAD_CHECK_BYTES = 160
-
-
 #: How often to poll ``bsv-cli`` for peer and block info (in seconds)
 SYNC_CHECK_INTERVAL = 60
 
@@ -155,7 +154,13 @@ def install_block(src_addr: str, dst_port: int, is_ipv6: bool):
         logger.error(f"❌ Failed to run {table_cmd} for {src_addr}:{dst_port}: {e}")
 
 
+
 def _parse_peer_ip(addr: str) -> Tuple[str, bool]:
+
+def _parse_peer_ip(addr: str) -> Tuple[str, bool]:
+
+def _parse_peer_ip(addr: str) -> tuple[str, bool]:
+
     """Return (ip, is_ipv6) parsed from getpeerinfo's addr field."""
     if addr.startswith('['):
         ip = addr[1:addr.index(']')]

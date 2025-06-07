@@ -16,6 +16,8 @@ import subprocess
 import threading
 import logging
 import sys
+import json
+import time
 
 from scapy.all import sniff, IP, IPv6, TCP, Raw
 
@@ -38,6 +40,12 @@ ALLOWED_SUBVERS = {
 #: Number of payload bytes to scan for the version banner. 160 bytes is
 #  large enough to include the entire version message in the first packet.
 HEAD_CHECK_BYTES = 160
+
+#: How often to poll ``bsv-cli`` for peer and block info (in seconds)
+SYNC_CHECK_INTERVAL = 60
+
+#: Optional datadir for bsv-cli. Leave empty string to omit.
+DATADIR = ""
 
 #: Whitelist IP v4/v6 (trusted peers)
 WHITELIST_V4 = "10.1.0.7"
@@ -142,6 +150,60 @@ def install_block(src_addr: str, dst_port: int, is_ipv6: bool):
     except subprocess.CalledProcessError as e:
         logger.error(f"❌ Failed to run {table_cmd} for {src_addr}:{dst_port}: {e}")
 
+
+def _parse_peer_ip(addr: str) -> tuple[str, bool]:
+    """Return (ip, is_ipv6) parsed from getpeerinfo's addr field."""
+    if addr.startswith('['):
+        ip = addr[1:addr.index(']')]
+    else:
+        ip = addr.rsplit(':', 1)[0]
+    is_v6 = ':' in ip
+    return ip, is_v6
+
+
+def check_peer_sync():
+    """Poll ``bsv-cli`` and block peers that are behind the local node."""
+    base_cmd = ['bsv-cli']
+    if DATADIR:
+        base_cmd.extend(['-datadir', DATADIR])
+
+    peer_cmd = base_cmd + ['getpeerinfo']
+    height_cmd = base_cmd + ['getblockcount']
+
+    while True:
+        try:
+            local_height = int(subprocess.check_output(height_cmd, text=True).strip())
+        except Exception as e:
+            logger.error(f"Failed to get block height: {e}")
+            time.sleep(SYNC_CHECK_INTERVAL)
+            continue
+
+        try:
+            output = subprocess.check_output(peer_cmd, text=True)
+            peers = json.loads(output)
+        except Exception as e:
+            logger.error(f"Failed to run bsv-cli: {e}")
+            time.sleep(SYNC_CHECK_INTERVAL)
+            continue
+
+        for p in peers:
+            addr = p.get('addr')
+            if not addr:
+                continue
+            ip, is_v6 = _parse_peer_ip(addr)
+            if ip in (WHITELIST_V4, WHITELIST_V6):
+                continue
+
+            headers = p.get('synced_headers')
+            blocks = p.get('synced_blocks')
+            if (
+                headers is None or blocks is None or
+                headers < local_height or blocks < local_height
+            ):
+                install_block(ip, CLIENT_PORT, is_v6)
+
+        time.sleep(SYNC_CHECK_INTERVAL)
+
 # ────── PACKET HANDLER / SNIFF LOOP ────────────────────────────────────────────────
 
 def packet_callback(pkt):
@@ -197,6 +259,10 @@ def main():
         f"Starting BSV Magic+Version Guard on {NETWORK_INTERFACE}, port={CLIENT_PORT}, "
         f"v4-whitelist={WHITELIST_V4}, v6-whitelist={WHITELIST_V6}"
     )
+
+    # Start background thread to enforce sync status
+    sync_thread = threading.Thread(target=check_peer_sync, daemon=True)
+    sync_thread.start()
 
     # Ensure SSH remains unblocked:
     # - sudo iptables  -I INPUT 1 -p tcp --dport 22 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT

@@ -3,7 +3,7 @@
 """
 bsv_magic_guard.py
 
-Monitors BOTH IPv4 and IPv6 TCP traffic on Bitcoin SV's P2P port (5333),
+Monitors BOTH IPv4 and IPv6 TCP traffic on Bitcoin SV's P2P port (8333),
 and immediately drops any connection that:
   1) Does NOT begin with the correct 4-byte "BSV magic" (E8 F3 E1 E3), OR
   2) Does NOT contain exactly "/Bitcoin SV:1.1.0/" or "/Bitcoin SV:1.0.16/"
@@ -39,6 +39,7 @@ ALLOWED_SUBVERS     = { b"/Bitcoin SV:1.1.0/", b"/Bitcoin SV:1.0.16/" }
 HEAD_CHECK_BYTES    = 160
 
 SYNC_CHECK_INTERVAL = 10  # seconds
+PING_THRESHOLD      = 0.3  # seconds; peers slower than this get the boot
 
 # RPC connection to your bsvd
 RPC_USER     = "bsv"
@@ -135,8 +136,9 @@ def rpc_request(method: str, params=None):
         logger.error(f"RPC `{method}` failed: {e}")
         return None
 
+
 def check_peer_sync():
-    """Every SYNC_CHECK_INTERVAL, block & disconnect any lagging peers."""
+    """Every SYNC_CHECK_INTERVAL, block & disconnect any lagging or slow peers."""
     while True:
         local_h = rpc_request("getblockcount")
         if local_h is None:
@@ -155,6 +157,15 @@ def check_peer_sync():
             ip, ipv6 = _parse_peer_ip(addr)
             if ip in (WHITELIST_V4, WHITELIST_V6):
                 continue
+
+            # ─── NEW: Latency check ─────────────────────
+            ping = p.get("pingtime")
+            if ping is not None and ping > PING_THRESHOLD:
+                logger.info(f"🐢 Slow peer {addr} ping={ping:.3f}s > {PING_THRESHOLD}s, blocking…")
+                install_block(ip, CLIENT_PORT, ipv6)
+                rpc_request("disconnectnode", [addr])
+                continue
+            # ───────────────────────────────────────────────
 
             hdrs = p.get("synced_headers")
             blks = p.get("synced_blocks")
@@ -186,6 +197,7 @@ def packet_callback(pkt):
                 snippet = data[:32].decode("utf-8","ignore").replace("\n","\\n")
                 logger.info(f"🔥 Bad v6 payload from {src6}:{dport}: “{snippet}”")
                 install_block(src6, dport, True)
+
 
 def main():
     logger.info(f"Starting BSV Magic Guard on {NETWORK_INTERFACE}:{CLIENT_PORT}  "

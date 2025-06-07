@@ -18,6 +18,7 @@ import logging
 import sys
 import json
 import time
+from typing import Tuple
 
 from scapy.all import sniff, IP, IPv6, TCP, Raw
 
@@ -151,7 +152,7 @@ def install_block(src_addr: str, dst_port: int, is_ipv6: bool):
         logger.error(f"❌ Failed to run {table_cmd} for {src_addr}:{dst_port}: {e}")
 
 
-def _parse_peer_ip(addr: str) -> tuple[str, bool]:
+def _parse_peer_ip(addr: str) -> Tuple[str, bool]:
     """Return (ip, is_ipv6) parsed from getpeerinfo's addr field."""
     if addr.startswith('['):
         ip = addr[1:addr.index(']')]

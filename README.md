@@ -1,40 +1,55 @@
 # BSV Magic Guard
 
-`bsv_magic_guard.py` monitors incoming Bitcoin SV peer-to-peer traffic and blocks any connection that does not present a valid magic header and version banner. It uses scapy to inspect packets and iptables/ip6tables to immediately drop offending hosts.
+`bsv_magic_guard.py` monitors incoming Bitcoin SV peer‑to‑peer traffic and blocks any connection that does not present a valid magic header and version banner.  It uses scapy to inspect packets and iptables/ip6tables to immediately drop offending hosts.  In addition it polls your node via JSON‑RPC to eject peers that are lagging behind or responding too slowly.
 
 ## Requirements
 
 - Python 3
 - [scapy](https://scapy.net/)
+- [requests](https://docs.python-requests.org/)
 - `iptables` and `ip6tables` (for managing firewall rules)
 - Root privileges (required for packet capture and firewall changes)
+- A running BSV node with JSON-RPC enabled
 
 ## Usage
 
-1. Install the Python dependencies:
-   ```bash
-   pip install scapy
-   ```
-2. Run the script as root so it can sniff traffic and modify firewall rules:
-   ```bash
-   sudo python3 bsv_magic_guard.py
-   ```
+### 1. Install prerequisites (Ubuntu)
 
-If your Bitcoin SV data directory is not the default location, set the `DATADIR`
-constant in `bsv_magic_guard.py` so the script can invoke `bsv-cli` correctly.
+```bash
+sudo apt-get update
+sudo apt-get install python3 python3-pip iptables ip6tables
+sudo pip3 install scapy requests
+```
 
-The script listens on interface `ens3` and port `8333` by default. Adjust these values at the top of `bsv_magic_guard.py` if your setup differs. Offending IPv4 and IPv6 addresses are added to your firewall with a DROP rule, while two addresses are whitelisted by default.
+### 2. Configure the script
 
-Log messages are written to `/var/log/bsv_magic_guard.log` and to stdout. Ensure the process has permission to create or append to this file.
+Edit `bsv_magic_guard.py` and set the variables near the top:
+- `NETWORK_INTERFACE` – interface to monitor (default `ens3`)
+- `CLIENT_PORT` – peer-to-peer port (default `5333`)
+- RPC credentials (`RPC_USER`, `RPC_PASSWORD`, `RPC_HOST`, `RPC_PORT`)
+- `WHITELIST_V4` / `WHITELIST_V6` – peers that should never be blocked
+- `PING_THRESHOLD` – drop peers exceeding this ping time
+
+### 3. Run the guard
+
+Run the script with root privileges so it can sniff packets and manipulate the firewall:
+
+```bash
+sudo python3 bsv_magic_guard.py
+```
+Log output is sent to `/var/log/bsv_magic_guard.log` and to the console. The script listens on the configured interface and port and drops offending IPv4 and IPv6 addresses. Two example addresses are whitelisted by default.
 
 ## How it Works
 
-- Captures TCP packets destined for port 8333 on both IPv4 and IPv6.
+- Captures TCP packets destined for `CLIENT_PORT` (default `5333`) on both IPv4 and IPv6.
 - Checks that the first four bytes match Bitcoin SV's magic header (`E8 F3 E1 E3`).
 - Searches the first 160 bytes of the payload for one of the allowed version banners (`/Bitcoin SV:1.1.0/` or `/Bitcoin SV:1.0.16/`).
 - Any peer failing these checks is immediately blocked via `iptables` or `ip6tables`.
-- Every minute the script queries the local block height with `bsv-cli getblockcount`
-  and bans peers whose `synced_blocks` or `synced_headers` are behind this height.
+- Every `SYNC_CHECK_INTERVAL` seconds the script calls the node's RPC interface
+  to obtain `getblockcount` and `getpeerinfo`.
+- Peers whose `synced_blocks` or `synced_headers` are behind the local height are
+  blocked and disconnected.
+- Peers reporting `pingtime` longer than `PING_THRESHOLD` are also dropped.
 
 ## Disclaimer
 

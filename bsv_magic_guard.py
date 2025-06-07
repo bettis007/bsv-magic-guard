@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 bsv_magic_guard.py
 
@@ -7,6 +8,7 @@ and immediately drops any connection that:
   1) Does NOT begin with the correct 4-byte "BSV magic" (E8 F3 E1 E3), OR
   2) Does NOT contain exactly "/Bitcoin SV:1.1.0/" or "/Bitcoin SV:1.0.16/"
      within the first 160 bytes (to catch the version banner in full).
+
 
 Any offending IP (v4 or v6) is instantly banished via iptables/ip6tables DROP.
 We whitelist one IPv4 (10.1.0.7) and one IPv6 (2600:1900:4000:ebb2:0:5::).
@@ -42,7 +44,6 @@ ALLOWED_SUBVERS = {
 #: Number of payload bytes to scan for the version banner. 160 bytes is
 #  large enough to include the entire version message in the first packet.
 HEAD_CHECK_BYTES = 160
-
 #: How often to poll ``bsv-cli`` for peer and block info (in seconds)
 SYNC_CHECK_INTERVAL = 60
 
@@ -151,6 +152,10 @@ def install_block(src_addr: str, dst_port: int, is_ipv6: bool):
         logger.info(f"✅ Successfully blocked {src_addr} → {dst_port}")
     except subprocess.CalledProcessError as e:
         logger.error(f"❌ Failed to run {table_cmd} for {src_addr}:{dst_port}: {e}")
+
+
+
+def _parse_peer_ip(addr: str) -> Tuple[str, bool]:
 
 def _parse_peer_ip(addr: str) -> Tuple[str, bool]:
 

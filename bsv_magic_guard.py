@@ -12,6 +12,7 @@ and immediately drops any connection that:
 Also polls your node via RPC:
   - Blocks & disconnects any peer whose synced_headers OR synced_blocks
     are below your local block height.
+  - Kicks any peer whose pingtime OR pingwait exceed the PING_THRESHOLD.
 
 Whitelist: IPv4 10.1.0.7 and IPv6 2600:1900:4000:ebb2:0:5::.
 """
@@ -158,14 +159,21 @@ def check_peer_sync():
             if ip in (WHITELIST_V4, WHITELIST_V6):
                 continue
 
-            # ─── NEW: Latency check ─────────────────────
+            # ─── NEW: Latency (pingtime) check ─────────────────────
             ping = p.get("pingtime")
             if ping is not None and ping > PING_THRESHOLD:
                 logger.info(f"🐢 Slow peer {addr} ping={ping:.3f}s > {PING_THRESHOLD}s, blocking…")
                 install_block(ip, CLIENT_PORT, ipv6)
                 rpc_request("disconnectnode", [addr])
                 continue
-            # ───────────────────────────────────────────────
+
+            # ─── NEW: Pingwait check ───────────────────────────────
+            pw = p.get("pingwait")
+            if pw is not None and pw > PING_THRESHOLD:
+                logger.info(f"🐌 High pingwait {addr} pingwait={pw:.3f}s > {PING_THRESHOLD}s, dropping…")
+                install_block(ip, CLIENT_PORT, ipv6)
+                rpc_request("disconnectnode", [addr])
+                continue
 
             hdrs = p.get("synced_headers")
             blks = p.get("synced_blocks")

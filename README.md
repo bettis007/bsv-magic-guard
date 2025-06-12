@@ -28,7 +28,7 @@ Edit `bsv_magic_guard.py` and set the variables near the top:
 - `CLIENT_PORT` – peer-to-peer port (default `5333`)
 - RPC credentials (`RPC_USER`, `RPC_PASSWORD`, `RPC_HOST`, `RPC_PORT`)
 - `WHITELIST_V4` / `WHITELIST_V6` – peers that should never be blocked
-- `PING_THRESHOLD` – drop peers exceeding this ping time
+- `PING_THRESHOLD` – drop peers whose pingtime or pingwait exceed this value
 
 ### 3. Run the guard
 
@@ -49,7 +49,7 @@ Log output is sent to `/var/log/bsv_magic_guard.log` and to the console. The scr
   to obtain `getblockcount` and `getpeerinfo`.
 - Peers whose `synced_blocks` or `synced_headers` are behind the local height are
   blocked and disconnected.
-- Peers reporting `pingtime` longer than `PING_THRESHOLD` are also dropped.
+- Peers reporting `pingtime` or `pingwait` longer than `PING_THRESHOLD` are also dropped.
 
 ## Disclaimer
 
